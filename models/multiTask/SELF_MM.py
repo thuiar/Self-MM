@@ -17,7 +17,7 @@ class SELF_MM(nn.Module):
     def __init__(self, args):
         super(SELF_MM, self).__init__()
         # text subnets
-        self.aligned = args.aligned
+        self.aligned = args.need_data_aligned
         self.text_model = BertTextEncoder(language=args.language, use_finetune=args.use_finetune)
 
         # audio-vision subnets
@@ -26,7 +26,7 @@ class SELF_MM(nn.Module):
                             num_layers=args.a_lstm_layers, dropout=args.a_lstm_dropout)
         self.video_model = AuViSubNet(video_in, args.v_lstm_hidden_size, args.video_out, \
                             num_layers=args.v_lstm_layers, dropout=args.v_lstm_dropout)
-    
+
         # the post_fusion layers
         self.post_fusion_dropout = nn.Dropout(p=args.post_fusion_dropout)
         self.post_fusion_layer_1 = nn.Linear(args.text_out + args.video_out + args.audio_out, args.post_fusion_dim)
@@ -44,16 +44,12 @@ class SELF_MM(nn.Module):
         self.post_audio_layer_1 = nn.Linear(args.audio_out, args.post_audio_dim)
         self.post_audio_layer_2 = nn.Linear(args.post_audio_dim, args.post_audio_dim)
         self.post_audio_layer_3 = nn.Linear(args.post_audio_dim, 1)
-        # test
-        self.audio_classifier = nn.Linear(args.audio_out, 1)
 
         # the classify layer for video
         self.post_video_dropout = nn.Dropout(p=args.post_video_dropout)
         self.post_video_layer_1 = nn.Linear(args.video_out, args.post_video_dim)
         self.post_video_layer_2 = nn.Linear(args.post_video_dim, args.post_video_dim)
         self.post_video_layer_3 = nn.Linear(args.post_video_dim, 1)
-        # test
-        self.video_classifier = nn.Linear(args.video_out, 1)
 
     def forward(self, text, audio, video):
         audio, audio_lengths = audio

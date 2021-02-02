@@ -1,5 +1,6 @@
 import os
 import time
+import logging
 import math
 import copy
 import argparse
@@ -15,15 +16,15 @@ from torch import optim
 from utils.functions import dict_to_str
 from utils.metricsTop import MetricsTop
 
-__all__ = ['SELF_MM']
+logger = logging.getLogger('MSA')
 
 class SELF_MM():
     def __init__(self, args):
-        self.args = args
-        self.metrics = MetricsTop().getMetics(args.datasetName)
+        assert args.train_mode == 'regression'
 
-        # others
-        assert args.task_type in ['regression', 'classification']
+        self.args = args
+        self.args.tasks = "MTAV"
+        self.metrics = MetricsTop(args.train_mode).getMetics(args.datasetName)
 
         self.feature_map = {
             'fusion': torch.zeros(args.train_samples, args.post_fusion_dim, requires_grad=False).to(args.device),
@@ -94,9 +95,9 @@ class SELF_MM():
         ]
         optimizer = optim.Adam(optimizer_grouped_parameters)
 
-        # saved_labels = {}
+        saved_labels = {}
         # init labels
-        print("Init labels...")
+        logger.info("Init labels...")
         with tqdm(dataloader['train']) as td:
             for batch_data in td:
                 labels_m = batch_data['labels']['M'].view(-1).to(self.args.device)
@@ -104,11 +105,12 @@ class SELF_MM():
                 self.init_labels(indexes, labels_m)
 
         # initilize results
-        print("Start training...")
+        logger.info("Start training...")
         epochs, best_epoch = 0, 0
         min_or_max = 'min' if self.args.KeyEval in ['Loss'] else 'max'
         best_valid = 1e8 if min_or_max == 'min' else 0
-        while(epochs - best_epoch < self.args.early_stop): 
+        # loop util earlystop
+        while True: 
             epochs += 1
             # train
             y_pred = {'M': [], 'T': [], 'A': [], 'V': []}
@@ -130,7 +132,8 @@ class SELF_MM():
                     indexes = batch_data['index'].view(-1)
                     cur_id = batch_data['id']
                     ids.extend(cur_id)
-                    if not self.args.aligned:
+
+                    if not self.args.need_data_aligned:
                         audio_lengths = batch_data['audio_lengths'].to(self.args.device)
                         vision_lengths = batch_data['vision_lengths'].to(self.args.device)
                     else:
@@ -170,46 +173,47 @@ class SELF_MM():
                     # update
                     optimizer.step()
             train_loss = train_loss / len(dataloader['train'])
-            print("TRAIN-(%s) (%d/%d/%d)>> loss: %.4f " % (self.args.modelName, \
+            logger.info("TRAIN-(%s) (%d/%d/%d)>> loss: %.4f " % (self.args.modelName, \
                         epochs-best_epoch, epochs, self.args.cur_time, train_loss))
             for m in self.args.tasks:
                 pred, true = torch.cat(y_pred[m]), torch.cat(y_true[m])
                 train_results = self.metrics(pred, true)
-                print('%s: >> ' %(m) + dict_to_str(train_results))
+                logger.info('%s: >> ' %(m) + dict_to_str(train_results))
             # validation
             val_results = self.do_test(model, dataloader['valid'], mode="VAL")
-            cur_valid = val_results['M'][self.args.KeyEval]
+            cur_valid = val_results[self.args.KeyEval]
             # save best model
-            isBetter = cur_valid <= best_valid if min_or_max == 'min' else cur_valid >= best_valid
+            isBetter = cur_valid <= (best_valid - 1e-6) if min_or_max == 'min' else cur_valid >= (best_valid + 1e-6)
             if isBetter:
                 best_valid, best_epoch = cur_valid, epochs
-                model_path = os.path.join(self.args.model_save_path,\
-                                    f'{self.args.modelName}-{self.args.datasetName}-{self.args.tasks}.pth')
-                if os.path.exists(model_path):
-                    os.remove(model_path)
                 # save model
-                torch.save(model.cpu().state_dict(), model_path)
+                torch.save(model.cpu().state_dict(), self.args.model_save_path)
                 model.to(self.args.device)
             # save labels
-            # tmp_save = {k: v.cpu().numpy() for k, v in self.label_map.items()}
-            # tmp_save['ids'] = ids
-            # saved_labels[epochs] = tmp_save
-        # with open(os.path.join('results/FinalSave', self.args.modelName + '-' + self.args.datasetName + '.pkl'), 'wb') as df:
-        #     plk.dump(saved_labels, df, protocol=4)
+            if self.args.save_labels:
+                tmp_save = {k: v.cpu().numpy() for k, v in self.label_map.items()}
+                tmp_save['ids'] = ids
+                saved_labels[epochs] = tmp_save
+            # early stop
+            if epochs - best_epoch >= self.args.early_stop:
+                if self.args.save_labels:
+                    with open(os.path.join(self.args.res_save_dir, f'{self.args.modelName}-{self.args.datasetName}-labels.pkl'), 'wb') as df:
+                        plk.dump(saved_labels, df, protocol=4)
+                return
 
     def do_test(self, model, dataloader, mode="VAL"):
         model.eval()
         y_pred = {'M': [], 'T': [], 'A': [], 'V': []}
         y_true = {'M': [], 'T': [], 'A': [], 'V': []}
         eval_loss = 0.0
-        criterion = nn.L1Loss()
+        # criterion = nn.L1Loss()
         with torch.no_grad():
             with tqdm(dataloader) as td:
                 for batch_data in td:
                     vision = batch_data['vision'].to(self.args.device)
                     audio = batch_data['audio'].to(self.args.device)
                     text = batch_data['text'].to(self.args.device)
-                    if not self.args.aligned:
+                    if not self.args.need_data_aligned:
                         audio_lengths = batch_data['audio_lengths'].to(self.args.device)
                         vision_lengths = batch_data['vision_lengths'].to(self.args.device)
                     else:
@@ -218,20 +222,16 @@ class SELF_MM():
                     labels_m = batch_data['labels']['M'].to(self.args.device).view(-1)
                     outputs = model(text, (audio, audio_lengths), (vision, vision_lengths))
                     loss = self.weighted_loss(outputs['M'], labels_m)
-                    # loss = criterion(outputs['M'], labels_m)
                     eval_loss += loss.item()
                     y_pred['M'].append(outputs['M'].cpu())
                     y_true['M'].append(labels_m.cpu())
         eval_loss = eval_loss / len(dataloader)
-        print(mode+"-(%s)" % self.args.modelName + " >> loss: %.4f " % eval_loss)
-        ret_res = {}
-        for m in ['M']:
-            pred, true = torch.cat(y_pred[m]), torch.cat(y_true[m])
-            results = self.metrics(pred, true)
-            print('%s: >> ' %(m) + dict_to_str(results))
-            ret_res[m] = results
-            ret_res[m]['Loss'] = eval_loss
-        return ret_res
+        logger.info(mode+"-(%s)" % self.args.modelName + " >> loss: %.4f " % eval_loss)
+        pred, true = torch.cat(y_pred['M']), torch.cat(y_true['M'])
+        eval_results = self.metrics(pred, true)
+        logger.info('M: >> ' + dict_to_str(eval_results))
+        eval_results['Loss'] = eval_loss
+        return eval_results
     
     def weighted_loss(self, y_pred, y_true, indexes=None, mode='fusion'):
         y_pred = y_pred.view(-1)
@@ -252,7 +252,10 @@ class SELF_MM():
     def update_centers(self):
         def update_single_center(mode):
             neg_indexes = self.label_map[mode] < 0
-            pos_indexes = self.label_map[mode] >= 0
+            if self.args.excludeZero:
+                pos_indexes = self.label_map[mode] > 0
+            else:
+                pos_indexes = self.label_map[mode] >= 0
             self.center_map[mode]['pos'] = torch.mean(self.feature_map[mode][pos_indexes], dim=0)
             self.center_map[mode]['neg'] = torch.mean(self.feature_map[mode][neg_indexes], dim=0)
 

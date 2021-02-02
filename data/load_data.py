@@ -1,10 +1,7 @@
 import os
-import random
+import logging
 import pickle
 import numpy as np
-import pandas as pd
-from glob import glob
-from sklearn.model_selection import train_test_split
 
 import torch
 import torch.nn.functional as F
@@ -12,69 +9,53 @@ from torch.utils.data import Dataset, DataLoader
 
 __all__ = ['MMDataLoader']
 
+logger = logging.getLogger('MSA')
+
 class MMDataset(Dataset):
     def __init__(self, args, mode='train'):
         self.mode = mode
         self.args = args
         DATA_MAP = {
             'mosi': self.__init_mosi,
-            'mosei': self.__init_mosi,
+            'mosei': self.__init_mosei,
             'sims': self.__init_sims,
         }
-        DATA_MAP[args.datasetName](args)
+        DATA_MAP[args.datasetName]()
 
-    def __init_mosi(self, args):
-        with open(args.dataPath, 'rb') as f:
+    def __init_mosi(self):
+        with open(self.args.dataPath, 'rb') as f:
             data = pickle.load(f)
-        if 'use_bert' in args and args.use_bert:
+        if self.args.use_bert:
             self.text = data[self.mode]['text_bert'].astype(np.float32)
         else:
             self.text = data[self.mode]['text'].astype(np.float32)
         self.vision = data[self.mode]['vision'].astype(np.float32)
         self.audio = data[self.mode]['audio'].astype(np.float32)
         self.rawText = data[self.mode]['raw_text']
-        self.ids = data[self.mode]['id'][:,0].tolist()
-        if 'aligned' not in self.args or not self.args.aligned:
+        self.ids = data[self.mode]['id']
+
+        self.labels = {
+            'M': data[self.mode][self.args.train_mode+'_labels'].astype(np.float32)
+        }
+        if self.args.datasetName == 'sims':
+            for m in "TAV":
+                self.labels[m] = data[self.mode][self.args.train_mode+'_labels_'+m]
+
+        logger.info(f"{self.mode} samples: {self.labels['M'].shape}")
+
+        if not self.args.need_data_aligned:
             self.audio_lengths = data[self.mode]['audio_lengths']
             self.vision_lengths = data[self.mode]['vision_lengths']
         self.audio[self.audio == -np.inf] = 0
-        self.labels = {
-            'M': data[self.mode]['labels'].astype(np.float32)
-        }
-        print(f"{self.mode} samples: {self.labels['M'].shape}")
-        if 'need_normalize' in args and args.need_normalize:
-            self.train_visual_max = np.max(np.max(np.abs(data['train']['vision']), axis=0), axis=0)
-            self.train_visual_max[self.train_visual_max==0] = 1
+
+        if  self.args.need_normalized:
             self.__normalize()
     
-    def __init_mosei(self, args):
-        return self.__init_mosi(args)
+    def __init_mosei(self):
+        return self.__init_mosi()
 
-    def __init_sims(self, args):
-        with open(args.dataPath, 'rb') as f:
-            data = pickle.load(f)
-        if 'use_bert' in args and args.use_bert:
-            self.text = data[self.mode]['text_bert'].astype(np.float32)
-        else:
-            self.text = data[self.mode]['feature_T'].astype(np.float32)
-        self.vision = data[self.mode]['feature_V'].astype(np.float32)
-        self.audio = data[self.mode]['feature_A'].astype(np.float32)
-        self.rawText = data[self.mode]['raw_text']
-        self.ids = data[self.mode]['ids']
-        if 'aligned' not in self.args or not self.args.aligned:
-            self.audio_lengths = data[self.mode]['audio_lengths']
-            self.vision_lengths = data[self.mode]['vision_lengths']
-        self.labels = {
-            'M': data[self.mode]['label_M'],
-            'T': data[self.mode]['label_T'], 
-            'A': data[self.mode]['label_A'], 
-            'V': data[self.mode]['label_V']
-        }
-        print(f"{self.mode} samples: {self.labels['M'].shape}")
-        if 'need_normalize' in args and args.need_normalize:
-            self.train_visual_max = np.max(np.max(np.abs(data['train']['feature_V']), axis=0), axis=0)
-            self.train_visual_max[self.train_visual_max==0] = 1
-            self.__normalize()
+    def __init_sims(self):
+        return self.__init_mosi()
 
     def __truncated(self):
         # NOTE: Here for dataset we manually cut the input into specific length.
@@ -95,7 +76,7 @@ class MMDataset(Dataset):
             truncated_feature = np.array(truncated_feature)
             return truncated_feature
                        
-        text_length, audio_length, video_length = self.args.input_lens
+        text_length, audio_length, video_length = self.args.seq_lens
         self.vision = Truncated(self.vision, video_length)
         self.text = Truncated(self.text, text_length)
         self.audio = Truncated(self.audio, audio_length)
@@ -121,7 +102,7 @@ class MMDataset(Dataset):
         return len(self.labels['M'])
 
     def get_seq_len(self):
-        if 'use_bert' in self.args and self.args.use_bert:
+        if self.args.use_bert:
             return (self.text.shape[2], self.audio.shape[1], self.vision.shape[1])
         else:
             return (self.text.shape[1], self.audio.shape[1], self.vision.shape[1])
@@ -136,11 +117,10 @@ class MMDataset(Dataset):
             'audio': torch.Tensor(self.audio[index]),
             'vision': torch.Tensor(self.vision[index]),
             'index': index,
-            # 'id': self.ids[index].decode('UTF-8'),
             'id': self.ids[index],
             'labels': {k: torch.Tensor(v[index].reshape(-1)) for k, v in self.labels.items()}
         } 
-        if 'aligned' not in self.args or not self.args.aligned:
+        if not self.args.need_data_aligned:
             sample['audio_lengths'] = self.audio_lengths[index]
             sample['vision_lengths'] = self.vision_lengths[index]
         return sample
@@ -153,8 +133,8 @@ def MMDataLoader(args):
         'test': MMDataset(args, mode='test')
     }
 
-    if 'input_lens' in args:
-        args.input_lens = datasets['train'].get_seq_len() 
+    if 'seq_lens' in args:
+        args.seq_lens = datasets['train'].get_seq_len() 
 
     dataLoader = {
         ds: DataLoader(datasets[ds],
