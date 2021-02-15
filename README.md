@@ -59,8 +59,7 @@ python run.py --modelName self_mm --datasetName mosi
 
 ### Results
 
-> We will update all results in another repo, [MMSA](https://github.com/thuiar/MMSA), in the next few days. 
-
+> Detailed results are shown in [MMSA](https://github.com/thuiar/MMSA) > [results/result-stat.md](https://github.com/thuiar/MMSA/blob/master/results/result-stat.md). 
 
 ### Paper
 ---
