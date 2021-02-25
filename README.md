@@ -1,22 +1,22 @@
-![Python 3.7](https://img.shields.io/badge/python-3.7-green.svg)
+![Python 3.6](https://img.shields.io/badge/python-3.6-green.svg)
 
 ## SELF-MM
-> Pytorch implementation for codes in [Learning Modality-Specific Representations with Self-Supervised Multi-Task Learning for Multimodal Sentiment Analysis (AAAI2021)]() 
+> Pytorch implementation for codes in [Learning Modality-Specific Representations with Self-Supervised Multi-Task Learning for Multimodal Sentiment Analysis (AAAI2021)](https://arxiv.org/abs/2102.04830). Please see our another repo [MMSA](https://github.com/thuiar/MMSA) for more details, which is a scalable framework for MSA.
 
 ### Model
 
-![model](assets/MainModel.pdf)
+![model](assets/MainModel.png)
 
 ### Usage
 
 1. Download datasets and preprocessing
-- mosi and MOSEI
+- MOSI and MOSEI
 > download from [CMU-MultimodalSDK](http://immortal.multicomp.cs.cmu.edu/raw_datasets/processed_data/)
 
-- sims
+- SIMS
 > download from [Baidu Yun Disk](https://pan.baidu.com/s/1CmLdhYSVnNFAyA0DkR6tdA)[code: `ozo2`] or [Google Drive](https://drive.google.com/file/d/1z6snOkOoy100F33lzmHHB_DUGJ47DaQo/view?usp=sharing)
 
-Then, preprocess data and save as a pickle file with the following structure.
+Then, preprocess data and save as a pickle file with the following structure using `data/DataPre.py`
 ```python
 {
     "train": {
@@ -38,7 +38,7 @@ Then, preprocess data and save as a pickle file with the following structure.
 ```
 
 2. Download [Bert-Base, Chinese](https://storage.googleapis.com/bert_models/2018_11_03/chinese_L-12_H-768_A-12.zip) from [Google-Bert](https://github.com/google-research/bert).  
-Then, convert Tensorflow into pytorch using [transformers-cli](https://huggingface.co/transformers/converting_tensorflow_models.html)  
+Then, convert Tensorflow into pytorch using [transformers-cli](https://huggingface.co/transformers/converting_tensorflow_models.html) and move them into `pretrained_model`  
 
 2. Clone this repo and install requirements.
 ```
