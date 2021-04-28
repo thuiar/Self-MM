@@ -96,7 +96,7 @@ class ConfigRegression():
                 'need_normalized': False,
                 'use_bert': True,
                 'use_finetune': True,
-                'save_labels': True,
+                'save_labels': False,
                 'early_stop': 8,
                 'update_epochs': 4
             },
@@ -174,12 +174,12 @@ class ConfigRegression():
                     # the batch_size of each epoch is update_epochs * batch_size
                     'batch_size': 32,
                     'learning_rate_bert': 5e-5,
-                    'learning_rate_audio': 0.005,
-                    'learning_rate_video': 0.001,
-                    'learning_rate_other': 0.001,
-                    'weight_decay_bert': 0.01,
-                    'weight_decay_audio': 0.0,
-                    'weight_decay_video': 0.0,
+                    'learning_rate_audio': 5e-3,
+                    'learning_rate_video': 5e-3,
+                    'learning_rate_other': 1e-3,
+                    'weight_decay_bert': 0.001,
+                    'weight_decay_audio': 0.01,
+                    'weight_decay_video': 0.01,
                     'weight_decay_other': 0.001,
                     # feature subNets
                     'a_lstm_hidden_size': 16,
@@ -195,12 +195,12 @@ class ConfigRegression():
                     # post feature
                     'post_fusion_dim': 128,
                     'post_text_dim':64,
-                    'post_audio_dim': 32,
-                    'post_video_dim': 16,
-                    'post_fusion_dropout': 0.1,
+                    'post_audio_dim': 16,
+                    'post_video_dim': 32,
+                    'post_fusion_dropout': 0.0,
                     'post_text_dropout': 0.1,
-                    'post_audio_dropout': 0.0,
-                    'post_video_dropout': 0.1,
+                    'post_audio_dropout': 0.1,
+                    'post_video_dropout': 0.0,
                     # res
                     'H': 1.0
                 },
